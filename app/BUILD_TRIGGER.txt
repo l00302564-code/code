@@ -1,0 +1,1 @@
+Build trigger for DLT Student Companion validation APK.
