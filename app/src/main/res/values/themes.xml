@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.DLTStudent" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@color/dlt_blue_dark</item>
+        <item name="android:navigationBarColor">@color/dlt_white</item>
+        <item name="android:colorAccent">@color/dlt_blue</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>
