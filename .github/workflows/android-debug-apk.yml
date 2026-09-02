@@ -1,0 +1,86 @@
+name: Build Android Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/**'
+      - 'source_parts/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - '.github/workflows/android-debug-apk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reconstruct MainActivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app/src/main/java/com/dlt/studentcompanion
+          cat source_parts/MainActivity.part* > app/src/main/java/com/dlt/studentcompanion/MainActivity.java
+          test "$(wc -l < app/src/main/java/com/dlt/studentcompanion/MainActivity.java)" -ge 700
+          grep -q 'class MainActivity' app/src/main/java/com/dlt/studentcompanion/MainActivity.java
+          grep -q 'TtsBridge' app/src/main/java/com/dlt/studentcompanion/MainActivity.java
+
+      - name: Public-source safety scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RniE --exclude-dir=.git '(sk-[A-Za-z0-9_-]{10,}|AIza[0-9A-Za-z_-]{20,}|gh[pousr]_[A-Za-z0-9_]{20,}|Bearer[[:space:]]+[A-Za-z0-9._-]{10,}|api[_ -]?key[[:space:]]*[:=][[:space:]]*[A-Za-z0-9._-]{8,}|password[[:space:]]*[:=]|192\.168\.[0-9]+\.[0-9]+:[0-9]+)' .; then
+            echo 'Potential secret or private host found; refusing to build.'
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        shell: bash
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build debug APK
+        shell: bash
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          file "$APK"
+          sha256sum "$APK" | tee "$APK.sha256"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DLT-Student-Companion-debug-apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
