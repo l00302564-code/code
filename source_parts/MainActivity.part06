@@ -1,0 +1,100 @@
+            String scheme = u.getScheme() == null ? "http" : u.getScheme().toLowerCase(Locale.ROOT);
+            if (!scheme.equals("http") && !scheme.equals("https")) return "";
+            int port = u.getPort();
+            if (port == -1) port = DEFAULT_PORT.equals("8765") ? 8765 : 8765;
+            return scheme + "://" + host + ":" + port;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private boolean isAllowedLanHost(String host) {
+        String h = host.toLowerCase(Locale.ROOT);
+        if (h.equals("localhost") || h.endsWith(".local")) return true;
+        if (isPrivateIpv4(h)) return true;
+        // Allow single-label Windows LAN computer names, but not arbitrary public internet hosts.
+        return h.matches("[a-z0-9][a-z0-9-]{0,62}");
+    }
+
+    private boolean isPrivateIpv4(String ip) {
+        try {
+            String[] p = ip.split("\\.");
+            if (p.length != 4) return false;
+            int a = Integer.parseInt(p[0]), b = Integer.parseInt(p[1]);
+            if (a == 10 || a == 127) return true;
+            if (a == 192 && b == 168) return true;
+            if (a == 172 && b >= 16 && b <= 31) return true;
+            return a == 100 && b >= 64 && b <= 127;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private TextView text(String v, float sp, int color) {
+        TextView t = new TextView(this);
+        t.setText(v);
+        t.setTextSize(sp);
+        t.setTextColor(color);
+        t.setLineSpacing(0f, 1.25f);
+        return t;
+    }
+
+    private Button button(String label) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextSize(15);
+        b.setAllCaps(false);
+        b.setMinHeight(dp(50));
+        return b;
+    }
+
+    private LinearLayout.LayoutParams widthMatch() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+    }
+
+    private int dp(int n) {
+        return Math.round(n * getResources().getDisplayMetrics().density);
+    }
+
+    private void initTts() {
+        tts = new TextToSpeech(this, status -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+            if (ttsReady) {
+                int r = tts.setLanguage(Locale.SIMPLIFIED_CHINESE);
+                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.CHINA);
+                }
+                tts.setSpeechRate(0.88f);
+                tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                    @Override public void onStart(String utteranceId) { }
+                    @Override public void onDone(String utteranceId) { notifyJsTtsDone(utteranceId); }
+                    @Override public void onError(String utteranceId) { notifyJsTtsDone(utteranceId); }
+                });
+            }
+        });
+    }
+
+    private void notifyJsTtsDone(String id) {
+        if (id == null || id.isEmpty() || "none".equals(id)) return;
+        runOnUiThread(() -> webView.evaluateJavascript("window.__DLTAndroidTtsDone&&window.__DLTAndroidTtsDone(" + JSONObject.quote(id) + ");", null));
+    }
+
+    public class TtsBridge {
+        @JavascriptInterface
+        public void speak(String text, String callbackId) {
+            final String safe = text == null ? "" : text.trim();
+            final String id = callbackId == null || callbackId.isEmpty() ? "none" : callbackId;
+            if (safe.isEmpty()) { notifyJsTtsDone(id); return; }
+            runOnUiThread(() -> {
+                if (!ttsReady || tts == null) {
+                    Toast.makeText(MainActivity.this, "Android 中文语音正在初始化，请稍后再试", Toast.LENGTH_SHORT).show();
+                    notifyJsTtsDone(id);
+                    return;
+                }
+                Bundle p = new Bundle();
+                p.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1f);
+                tts.speak(safe, TextToSpeech.QUEUE_FLUSH, p, id);
+            });
+        }
+
+        @JavascriptInterface
