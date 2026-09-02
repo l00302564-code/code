@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">DLT Learning Tracker</string>
+    <string name="file_provider_authority">com.dlt.studentcompanion.files</string>
+</resources>
