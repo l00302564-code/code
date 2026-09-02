@@ -39,7 +39,7 @@
         s.setSupportZoom(true);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
-        s.setUserAgentString(s.getUserAgentString() + " DLTStudentCompanion/0.1");
+        s.setUserAgentString(s.getUserAgentString() + " DLTStudentCompanion/" + BuildConfig.VERSION_NAME);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             s.setSafeBrowsingEnabled(true);
         }
@@ -96,5 +96,5 @@
     }
 
     private void injectCompanionMarker() {
-        String js = "window.__DLT_ANDROID_COMPANION__={version:'0.1.0-validation',nativeTts:true,nativeFileChooser:true};";
+        String js = "window.__DLT_ANDROID_COMPANION__={version:'" + BuildConfig.VERSION_NAME + "',nativeTts:true,nativeFileChooser:true};";
         webView.evaluateJavascript(js, null);

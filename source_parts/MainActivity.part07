@@ -3,7 +3,7 @@
         }
 
         @JavascriptInterface
-        public String version() { return "0.1.0-validation"; }
+        public String version() { return BuildConfig.VERSION_NAME; }
     }
 
     private class DltChromeClient extends WebChromeClient {

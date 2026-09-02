@@ -10,8 +10,8 @@ android {
         applicationId 'com.dlt.studentcompanion'
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0-validation'
+        versionCode 531407
+        versionName '53.3-rc14.7'
     }
 
     buildTypes {
