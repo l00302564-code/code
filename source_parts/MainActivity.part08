@@ -1,0 +1,35 @@
+                if (which == 0) webView.reload();
+                else if (which == 1) showSetup("连接设置。正常情况下不需要改；只有家里电脑地址发生变化且自动恢复失败时才使用。", true);
+                else finish();
+            }).show();
+    }
+
+    private void resetPairing() {
+        CookieManager.getInstance().removeAllCookies(null);
+        CookieManager.getInstance().flush();
+        prefs.edit().remove(KEY_SERVER).apply();
+        serverUrl = "";
+        webView.loadUrl("about:blank");
+        showSetup("已清除旧连接。请重新查找 Windows Learning Tracker，并生成新的 6 位配对码。", false);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (fileCallback != null) fileCallback.onReceiveValue(null);
+        if (tts != null) { tts.stop(); tts.shutdown(); }
+        if (webView != null) { webView.removeJavascriptInterface("AndroidDLT"); webView.destroy(); }
+        io.shutdownNow();
+        super.onDestroy();
+    }
+
+    private static class ProbeResult {
+        final boolean ok; final String message; final String version;
+        ProbeResult(boolean ok, String message, String version) { this.ok = ok; this.message = message; this.version = version; }
+    }
+
+    private static class URLParts {
+        final URI uri;
+        private URLParts(URI uri) { this.uri = uri; }
+        static URLParts of(String raw) throws Exception { return new URLParts(new URI(raw)); }
+    }
+}
