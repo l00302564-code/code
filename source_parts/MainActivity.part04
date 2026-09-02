@@ -1,0 +1,100 @@
+                setupOverlay = null;
+            }
+        });
+    }
+
+    private void probeAndOpen(String candidate, boolean onlyProbe) {
+        io.submit(() -> {
+            ProbeResult result = probe(candidate, 1200);
+            runOnUiThread(() -> {
+                if (!result.ok) {
+                    if (setupProgress != null) setupProgress.setVisibility(View.GONE);
+                    showSetup("没有检测到 Learning Tracker：" + result.message + "\n\n请检查 Windows 电脑已启动、Windows 防火墙允许家庭网络访问 8765 端口，并确认两台设备在同一 Wi-Fi。", true);
+                    return;
+                }
+                serverUrl = candidate;
+                prefs.edit().putString(KEY_SERVER, serverUrl).apply();
+                if (onlyProbe) {
+                    if (setupProgress != null) setupProgress.setVisibility(View.GONE);
+                    if (serverInput != null) serverInput.setText(serverUrl);
+                    if (setupStatus != null) setupStatus.setText("✓ 已找到 Learning Tracker " + result.version + "。现在输入 Windows 端生成的 6 位配对码。\n" + serverUrl);
+                    return;
+                }
+                webView.loadUrl(serverUrl + "/");
+            });
+        });
+    }
+
+    private void startDiscovery() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.NEARBY_WIFI_DEVICES}, REQ_NEARBY);
+        }
+        setupProgress.setVisibility(View.VISIBLE);
+        setupStatus.setText("正在当前 Wi-Fi 自动查找 Learning Tracker…通常需要 2–6 秒。");
+        io.submit(() -> {
+            String localIp = currentPrivateIpv4();
+            if (localIp == null) {
+                runOnUiThread(() -> {
+                    setupProgress.setVisibility(View.GONE);
+                    setupStatus.setText("没有取得当前 Wi-Fi IPv4 地址。请确认已连接家庭 Wi-Fi，或直接输入 Windows 电脑 IP。");
+                });
+                return;
+            }
+            String[] parts = localIp.split("\\.");
+            if (parts.length != 4) return;
+            String prefix = parts[0] + "." + parts[1] + "." + parts[2] + ".";
+            AtomicBoolean found = new AtomicBoolean(false);
+            ExecutorService scan = Executors.newFixedThreadPool(40);
+            for (int i = 1; i <= 254; i++) {
+                String ip = prefix + i;
+                if (ip.equals(localIp)) continue;
+                scan.submit(() -> {
+                    if (found.get()) return;
+                    String u = "http://" + ip + ":" + DEFAULT_PORT;
+                    ProbeResult r = probe(u, 450);
+                    if (r.ok && found.compareAndSet(false, true)) {
+                        serverUrl = u;
+                        prefs.edit().putString(KEY_SERVER, u).apply();
+                        runOnUiThread(() -> {
+                            setupProgress.setVisibility(View.GONE);
+                            serverInput.setText(u);
+                            setupStatus.setText("✓ 已找到 " + r.version + "\n" + u + "\n\n请输入 Windows 端生成的 6 位配对码。 ");
+                        });
+                    }
+                });
+            }
+            scan.shutdown();
+            try { scan.awaitTermination(8, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
+            if (!found.get()) {
+                runOnUiThread(() -> {
+                    setupProgress.setVisibility(View.GONE);
+                    setupStatus.setText("自动查找没有发现 Learning Tracker。请确认 Windows 程序正在运行；如果电脑与手机不在同一 /24 网段，可直接输入电脑 IP。");
+                });
+            }
+        });
+    }
+
+    private void claimPairing() {
+        String u = normalizeServerUrl(serverUrl.isEmpty() ? serverInput.getText().toString() : serverUrl);
+        String code = pairCodeInput.getText().toString().trim();
+        if (u.isEmpty()) {
+            setupStatus.setText("请先连接到 Windows Learning Tracker。");
+            return;
+        }
+        if (!code.matches("\\d{6}")) {
+            setupStatus.setText("请输入 Windows 端生成的 6 位配对码。");
+            return;
+        }
+        serverUrl = u;
+        setupProgress.setVisibility(View.VISIBLE);
+        setupStatus.setText("正在建立 Student 设备 Session…");
+        io.submit(() -> {
+            HttpURLConnection c = null;
+            try {
+                URLParts p = URLParts.of(serverUrl + "/api/auth/device-pairing/claim");
+                c = (HttpURLConnection) p.uri.toURL().openConnection();
+                c.setConnectTimeout(2000);
+                c.setReadTimeout(4000);
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type", "application/json");
+                c.setRequestProperty("User-Agent", "DLTStudentCompanion/0.1 Android");
