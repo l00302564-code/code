@@ -6,6 +6,10 @@ android {
     namespace 'com.dlt.studentcompanion'
     compileSdk 36
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId 'com.dlt.studentcompanion'
         minSdk 26
