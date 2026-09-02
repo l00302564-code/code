@@ -1,0 +1,100 @@
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        initTts();
+        buildRoot();
+        configureWebView();
+
+        serverUrl = normalizeServerUrl(prefs.getString(KEY_SERVER, ""));
+        if (!serverUrl.isEmpty()) {
+            showCheckingOverlay("正在连接家里的 Learning Tracker…");
+            probeAndOpen(serverUrl, false);
+        } else {
+            showSetup("第一次安装只需要配对一次。以后点桌面图标会直接进入 学生的今日任务。", false);
+        }
+    }
+
+    private void buildRoot() {
+        root = new FrameLayout(this);
+        webView = new WebView(this);
+        root.addView(webView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+    }
+
+    private void configureWebView() {
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        cookies.setAcceptThirdPartyCookies(webView, false);
+
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(true);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setSupportZoom(true);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
+        s.setUserAgentString(s.getUserAgentString() + " DLTStudentCompanion/0.1");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            s.setSafeBrowsingEnabled(true);
+        }
+
+        webView.addJavascriptInterface(new TtsBridge(), "AndroidDLT");
+        webView.setWebChromeClient(new DltChromeClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri target = request.getUrl();
+                if (isInternalUrl(target)) return false;
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, target));
+                } catch (Exception ignored) { }
+                return true;
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                mainFrameLoaded = true;
+                hideSetupOverlay();
+                injectCompanionMarker();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    mainFrameLoaded = false;
+                    showSetup("连接不到家里的 Learning Tracker。请确认 Windows 电脑已经启动 Learning Tracker，并且手机/Pad 与电脑在同一个 Wi-Fi。", true);
+                }
+            }
+
+            @Override
+            public void onSafeBrowsingHit(WebView view, WebResourceRequest request, int threatType, SafeBrowsingResponse callback) {
+                callback.backToSafety(true);
+            }
+        });
+    }
+
+    private boolean isInternalUrl(Uri uri) {
+        try {
+            URI base = new URI(serverUrl);
+            String host = uri.getHost();
+            int port = uri.getPort() == -1 ? defaultPort(uri.getScheme()) : uri.getPort();
+            int basePort = base.getPort() == -1 ? defaultPort(base.getScheme()) : base.getPort();
+            return host != null && host.equalsIgnoreCase(base.getHost()) && port == basePort;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private int defaultPort(String scheme) {
+        return "https".equalsIgnoreCase(scheme) ? 443 : 80;
+    }
+
+    private void injectCompanionMarker() {
+        String js = "window.__DLT_ANDROID_COMPANION__={version:'0.1.0-validation',nativeTts:true,nativeFileChooser:true};";
+        webView.evaluateJavascript(js, null);
