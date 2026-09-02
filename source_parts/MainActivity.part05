@@ -1,0 +1,100 @@
+                c.setDoOutput(true);
+                JSONObject body = new JSONObject();
+                body.put("code", code);
+                body.put("device_name", Build.MANUFACTURER + " " + Build.MODEL);
+                try (OutputStream os = c.getOutputStream()) {
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                int status = c.getResponseCode();
+                String response = readBody(status >= 200 && status < 300 ? c.getInputStream() : c.getErrorStream());
+                if (status < 200 || status >= 300) {
+                    String msg = "配对失败";
+                    try { msg = new JSONObject(response).optString("detail", msg); } catch (Exception ignored) { }
+                    String finalMsg = msg;
+                    runOnUiThread(() -> {
+                        setupProgress.setVisibility(View.GONE);
+                        setupStatus.setText(finalMsg);
+                    });
+                    return;
+                }
+                String setCookie = c.getHeaderField("Set-Cookie");
+                if (setCookie == null || setCookie.isEmpty()) throw new IllegalStateException("服务器未返回 Student Session Cookie");
+                CookieManager cm = CookieManager.getInstance();
+                cm.setAcceptCookie(true);
+                final String cookie = setCookie;
+                runOnUiThread(() -> {
+                    cm.setCookie(serverUrl, cookie);
+                    cm.flush();
+                    prefs.edit().putString(KEY_SERVER, serverUrl).apply();
+                    setupProgress.setVisibility(View.GONE);
+                    setupStatus.setText("✓ 配对成功，正在进入 学生学习页面…");
+                    webView.loadUrl(serverUrl + "/");
+                });
+            } catch (Exception e) {
+                String m = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                runOnUiThread(() -> {
+                    setupProgress.setVisibility(View.GONE);
+                    setupStatus.setText("配对失败：" + m);
+                });
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        });
+    }
+
+    private ProbeResult probe(String base, int timeoutMs) {
+        HttpURLConnection c = null;
+        try {
+            URI uri = new URI(base + "/api/health");
+            c = (HttpURLConnection) uri.toURL().openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestMethod("GET");
+            c.setUseCaches(false);
+            int code = c.getResponseCode();
+            if (code != 200) return new ProbeResult(false, "HTTP " + code, "");
+            JSONObject o = new JSONObject(readBody(c.getInputStream()));
+            if (!o.optBoolean("ok", false)) return new ProbeResult(false, "不是 Learning Tracker", "");
+            return new ProbeResult(true, "OK", o.optString("version", "DLT"));
+        } catch (Exception e) {
+            return new ProbeResult(false, e.getClass().getSimpleName(), "");
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private String readBody(InputStream in) throws Exception {
+        if (in == null) return "";
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            StringBuilder b = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) b.append(line);
+            return b.toString();
+        }
+    }
+
+    private String currentPrivateIpv4() {
+        try {
+            Enumeration<NetworkInterface> ifs = NetworkInterface.getNetworkInterfaces();
+            for (NetworkInterface nif : Collections.list(ifs)) {
+                if (!nif.isUp() || nif.isLoopback()) continue;
+                for (InetAddress a : Collections.list(nif.getInetAddresses())) {
+                    if (a instanceof Inet4Address && !a.isLoopbackAddress() && isPrivateIpv4(a.getHostAddress())) {
+                        return a.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) { }
+        return null;
+    }
+
+    private String normalizeServerUrl(String raw) {
+        if (raw == null) return "";
+        String x = raw.trim();
+        if (x.isEmpty()) return "";
+        if (!x.matches("(?i)^https?://.*")) x = "http://" + x;
+        try {
+            URI u = new URI(x);
+            String host = u.getHost();
+            if (host == null || host.isEmpty()) return "";
+            if (!isAllowedLanHost(host)) return "";
