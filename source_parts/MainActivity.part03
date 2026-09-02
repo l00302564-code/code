@@ -1,0 +1,100 @@
+    }
+
+    private void showCheckingOverlay(String message) {
+        showSetup(message, false);
+        setupProgress.setVisibility(View.VISIBLE);
+        serverInput.setVisibility(View.GONE);
+        pairCodeInput.setVisibility(View.GONE);
+    }
+
+    private void showSetup(String message, boolean keepSavedAddress) {
+        runOnUiThread(() -> {
+            if (setupOverlay != null) root.removeView(setupOverlay);
+
+            ScrollView scroll = new ScrollView(this);
+            scroll.setFillViewport(true);
+            scroll.setBackgroundColor(Color.rgb(244, 249, 252));
+            LinearLayout shell = new LinearLayout(this);
+            shell.setOrientation(LinearLayout.VERTICAL);
+            shell.setPadding(dp(28), dp(36), dp(28), dp(28));
+            shell.setGravity(Gravity.CENTER_HORIZONTAL);
+            scroll.addView(shell, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            TextView logo = new TextView(this);
+            logo.setText("D");
+            logo.setGravity(Gravity.CENTER);
+            logo.setTextColor(Color.WHITE);
+            logo.setTextSize(32);
+            logo.setBackgroundColor(Color.rgb(47,111,143));
+            LinearLayout.LayoutParams lpLogo = new LinearLayout.LayoutParams(dp(72), dp(72));
+            lpLogo.bottomMargin = dp(16);
+            shell.addView(logo, lpLogo);
+
+            TextView title = text("DLT Learning Tracker", 24, Color.rgb(31, 58, 76));
+            title.setGravity(Gravity.CENTER);
+            shell.addView(title, widthMatch());
+            TextView sub = text("Student Companion · Android 验证版", 14, Color.rgb(83, 111, 128));
+            sub.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams subLp = widthMatch(); subLp.bottomMargin = dp(24); shell.addView(sub, subLp);
+
+            setupStatus = text(message, 15, Color.rgb(57, 83, 99));
+            setupStatus.setPadding(dp(16), dp(14), dp(16), dp(14));
+            setupStatus.setBackgroundColor(Color.WHITE);
+            LinearLayout.LayoutParams stLp = widthMatch(); stLp.bottomMargin = dp(14); shell.addView(setupStatus, stLp);
+
+            setupProgress = new ProgressBar(this);
+            setupProgress.setIndeterminate(true);
+            setupProgress.setVisibility(View.GONE);
+            LinearLayout.LayoutParams prLp = new LinearLayout.LayoutParams(dp(44), dp(44)); prLp.bottomMargin = dp(12); shell.addView(setupProgress, prLp);
+
+            serverInput = new EditText(this);
+            serverInput.setSingleLine(true);
+            serverInput.setText(serverUrl.isEmpty() ? (keepSavedAddress ? prefs.getString(KEY_SERVER, "") : "") : serverUrl);
+            serverInput.setHint("电脑地址，例如 192.168.31.20");
+            serverInput.setTextSize(16);
+            LinearLayout.LayoutParams inputLp = widthMatch(); inputLp.bottomMargin = dp(9); shell.addView(serverInput, inputLp);
+
+            Button discover = button("自动查找家里的电脑");
+            discover.setOnClickListener(v -> startDiscovery());
+            LinearLayout.LayoutParams btnLp = widthMatch(); btnLp.bottomMargin = dp(9); shell.addView(discover, btnLp);
+
+            Button connect = button("连接这个地址");
+            connect.setOnClickListener(v -> {
+                String candidate = normalizeServerUrl(serverInput.getText().toString());
+                if (candidate.isEmpty()) {
+                    setupStatus.setText("请输入电脑 IP 地址，或点“自动查找”。");
+                    return;
+                }
+                serverUrl = candidate;
+                setupProgress.setVisibility(View.VISIBLE);
+                setupStatus.setText("正在检查 " + serverUrl + " …");
+                probeAndOpen(serverUrl, true);
+            });
+            LinearLayout.LayoutParams cLp = widthMatch(); cLp.bottomMargin = dp(18); shell.addView(connect, cLp);
+
+            TextView pairTitle = text("家长设备配对码", 14, Color.rgb(31, 58, 76));
+            shell.addView(pairTitle, widthMatch());
+            pairCodeInput = new EditText(this);
+            pairCodeInput.setSingleLine(true);
+            pairCodeInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            pairCodeInput.setHint("6 位配对码");
+            pairCodeInput.setTextSize(22);
+            pairCodeInput.setLetterSpacing(0.15f);
+            LinearLayout.LayoutParams codeLp = widthMatch(); codeLp.bottomMargin = dp(8); shell.addView(pairCodeInput, codeLp);
+
+            Button pair = button("完成配对并进入学习");
+            pair.setOnClickListener(v -> claimPairing());
+            LinearLayout.LayoutParams pairLp = widthMatch(); pairLp.bottomMargin = dp(18); shell.addView(pair, pairLp);
+
+            TextView note = text("配对码由家长在 Windows Learning Tracker → 任务配置 → 账号与角色权限里生成，有效期 10 分钟。配对成功后，本 App 只拿 Student Session，不保存家长密码，也不复制学习数据库。", 13, Color.rgb(95, 119, 132));
+            shell.addView(note, widthMatch());
+
+            setupOverlay = scroll;
+            root.addView(setupOverlay, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        });
+    }
+
+    private void hideSetupOverlay() {
+        runOnUiThread(() -> {
+            if (setupOverlay != null) {
+                root.removeView(setupOverlay);
