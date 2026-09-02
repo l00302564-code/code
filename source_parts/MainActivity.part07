@@ -1,0 +1,100 @@
+        public void stopSpeech() {
+            runOnUiThread(() -> { if (tts != null) tts.stop(); });
+        }
+
+        @JavascriptInterface
+        public String version() { return "0.1.0-validation"; }
+    }
+
+    private class DltChromeClient extends WebChromeClient {
+        @Override
+        public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+            if (fileCallback != null) fileCallback.onReceiveValue(null);
+            fileCallback = filePathCallback;
+            launchFileChooser(fileChooserParams);
+            return true;
+        }
+    }
+
+    private void launchFileChooser(WebChromeClient.FileChooserParams params) {
+        Intent content = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        content.addCategory(Intent.CATEGORY_OPENABLE);
+        content.setType("*/*");
+        content.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params != null && params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
+        String[] types = params == null ? null : params.getAcceptTypes();
+        ArrayList<String> mime = new ArrayList<>();
+        if (types != null) for (String x : types) if (x != null && !x.isBlank()) mime.add(x);
+        if (mime.isEmpty()) { mime.add("image/*"); mime.add("video/*"); }
+        content.putExtra(Intent.EXTRA_MIME_TYPES, mime.toArray(new String[0]));
+
+        Intent camera = null;
+        if (mime.stream().anyMatch(x -> x.startsWith("image/") || x.equals("image/*"))) {
+            try {
+                File dir = new File(getCacheDir(), "camera");
+                if (!dir.exists()) dir.mkdirs();
+                String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                File f = new File(dir, "DLT_" + stamp + ".jpg");
+                pendingCameraUri = FileProvider.getUriForFile(this, getPackageName() + ".files", f);
+                camera = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                camera.putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri);
+                camera.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                if (camera.resolveActivity(getPackageManager()) == null) camera = null;
+            } catch (Exception e) {
+                pendingCameraUri = null;
+                camera = null;
+            }
+        }
+
+        Intent chooser = Intent.createChooser(content, "选择作业图片 / 视频");
+        if (camera != null) chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{camera});
+        try {
+            startActivityForResult(chooser, REQ_FILE);
+        } catch (ActivityNotFoundException e) {
+            fileCallback.onReceiveValue(null);
+            fileCallback = null;
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_FILE || fileCallback == null) return;
+        List<Uri> out = new ArrayList<>();
+        if (resultCode == RESULT_OK) {
+            if (data == null && pendingCameraUri != null) {
+                out.add(pendingCameraUri);
+            } else if (data != null) {
+                ClipData clip = data.getClipData();
+                if (clip != null) {
+                    for (int i = 0; i < clip.getItemCount(); i++) out.add(clip.getItemAt(i).getUri());
+                } else if (data.getData() != null) {
+                    out.add(data.getData());
+                } else if (pendingCameraUri != null) {
+                    out.add(pendingCameraUri);
+                }
+            }
+        }
+        fileCallback.onReceiveValue(out.isEmpty() ? null : out.toArray(new Uri[0]));
+        fileCallback = null;
+        pendingCameraUri = null;
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (setupOverlay != null) {
+            new AlertDialog.Builder(this)
+                .setTitle("DLT Learning Tracker")
+                .setItems(new String[]{"重新自动查找", "清除连接并重新配对", "退出"}, (d, which) -> {
+                    if (which == 0) startDiscovery();
+                    else if (which == 1) resetPairing();
+                    else finish();
+                }).show();
+            return;
+        }
+        if (webView.canGoBack()) {
+            webView.goBack();
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("DLT Learning Tracker")
+            .setItems(new String[]{"刷新", "连接设置", "退出"}, (d, which) -> {
